@@ -1,0 +1,251 @@
+---
+title: "NSRL19A Females Weights"
+author: "Frederico Kiffer, PhD"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+Import Libraries
+```{r}
+library(tidyverse)
+library(colorspace)
+library(ggpubr)
+library(rstatix)
+```
+
+# View and Format Data
+
+Load and View Data
+```{r}
+FemalesWeights <- read_csv('https://raw.githubusercontent.com/FKiffer/NSRL19AFemales/main/Female%20Weights.csv')
+FemalesWeights
+```
+
+Define Factor Variables
+```{r}
+FemalesWeights <- FemalesWeights %>%
+  convert_as_factor(Radiation, Diet, Mouse)
+```
+
+Drop Final Weights Collected for Normal Distribution
+```{r}
+FemalesWeightsClean <- FemalesWeights %>%
+  filter(Date < "2020-04-24")
+```
+
+Mean and SEM by Day
+```{r}
+FemalesWeightsClean %>%
+  group_by(Radiation, Diet, Date) %>%
+  get_summary_stats(Weight, type = "mean_se")
+```
+
+View Raw Data
+```{r}
+ggplot(FemalesWeightsClean, aes(x = Date, y = Weight,
+  shape = Diet, color = Radiation, fill = Diet, 
+  group = interaction(Radiation, Diet))) +
+  geom_point() +
+  scale_color_manual(values = c("#db8270", "#3e8dcc")) +
+  ggtitle("19A Females Weights") + 
+  ylab("Weight (g)") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust = 1), 
+      panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+      plot.title = element_text(hjust = 0.5, face="bold", size = 18), 
+      panel.background = element_blank(), 
+      axis.line = element_line(colour = "black", size = 1), 
+      axis.text.y=element_text(colour = "black", family="Arial", size=12,
+                             face="bold"), 
+      axis.title.x=element_text(face = "bold", size=14),
+      axis.title.y=element_text(face = "bold", size=14),
+      legend.title=element_text(face="bold"),
+      legend.text=element_text(face="bold"))
+```
+
+# Test for ANOVA Assumptions
+
+Identify Outliers
+```{r}
+FemalesWeightsCleanOutliers <- FemalesWeightsClean %>%
+  group_by(Radiation, Diet, Date) %>%
+  identify_outliers(Weight)
+FemalesWeightsCleanOutliers
+```
+
+Test for Normality of Distributions at Each Date
+```{r}
+FemalesWeightsClean %>%
+  group_by(Radiation, Diet, Date) %>%
+  shapiro_test(Weight)
+```
+
+Visualize Distributions by QQPlots by Increasing Dates
+```{r fig.align="center", fig.width = 8}
+FemalesClean1 <- FemalesWeightsClean %>% filter(Date <= '2019-07-31')
+FemalesClean2 <- FemalesWeightsClean %>% filter(Date > '2019-07-31' & 
+                                                  Date <= '2019-10-30')
+FemalesClean3 <- FemalesWeightsClean %>% filter(Date > '2019-10-30' &
+                                                  Date <= '2020-01-08')
+FemalesClean4 <- FemalesWeightsClean %>% filter(Date > '2020-01-08')
+
+ggqqplot(FemalesClean1, "Weight", ggtheme = theme_bw()) +
+  facet_grid(Radiation + Diet ~ Date,
+             labeller = "label_both")
+ggqqplot(FemalesClean2, "Weight", ggtheme = theme_bw()) +
+  facet_grid(Radiation + Diet ~ Date,
+             labeller = "label_both")
+ggqqplot(FemalesClean3, "Weight", ggtheme = theme_bw()) +
+  facet_grid(Radiation + Diet ~ Date,
+             labeller = "label_both")
+ggqqplot(FemalesClean4, "Weight", ggtheme = theme_bw()) +
+  facet_grid(Radiation + Diet ~ Date,
+             labeller = "label_both")
+```
+
+Test for Homogeneity of Variance
+```{r}
+HomVar <- FemalesWeightsClean %>%
+  group_by(Date) 
+
+HomVarRad <- HomVar %>%
+  levene_test(Weight ~ Radiation)
+
+HomVarDiet <- HomVar %>%
+  levene_test(Weight ~ Diet)
+
+HomVarRad
+HomVarDiet
+```
+# Repeated Measures 3-Way ANOVA
+
+Repeated Measures ANOVA with Greenhouse-Geisser Corrections for Spherecity
+```{r}
+FemalesANOVA <- anova_test(
+  data = FemalesWeightsClean, Weight ~ Radiation * Diet * Date, wid = Mouse,
+  within = Date
+)
+get_anova_table(FemalesANOVA)
+```
+Because our data contains missing samples due to animal deaths, a mixed model is preferred:
+
+Repeated Measures 3-Way Mixed Model ANOVA
+```{r}
+FemalesMMANOVA <- anova_test(
+  data = FemalesWeightsClean, dv = Weight, between = c(Radiation, Diet), 
+  within = Date, wid = Mouse
+)
+get_anova_table(FemalesMMANOVA)
+```
+
+# Multiple Comparisons
+
+Here are several approaches to multiple comparisons that use different pooling Standard Deviations (SD), depending on which main variables are relevant for comparisons
+
+Multiple Comparisons with Bonferroni Corrections by Diet (pools all Diet SDs)
+```{r}
+PairwiseDiet <- FemalesWeightsClean %>%
+  group_by(Date, Radiation) %>%
+  pairwise_t_test(
+    Weight ~ Diet, paired = FALSE,
+    p.adjust.method = "bonferroni"
+  )
+PairwiseDiet
+```
+
+Multiple Comparisons with Bonferroni Corrections by Radiation (pools all Radiation SDs)
+```{r}
+PairwiseRad <- FemalesWeightsClean %>%
+  group_by(Date, Diet) %>%
+  pairwise_t_test(
+    Weight ~ Radiation, paired = FALSE,
+    p.adjust.method = "bonferroni"
+  )
+PairwiseRad
+```
+
+Format Data for Multi-Variable Multiple Comparisons
+```{r}
+FemalesWeightsClean$Group <- paste(FemalesWeightsClean$Diet, 
+                                   FemalesWeightsClean$Radiation)
+head(FemalesWeightsClean)
+```
+
+Multiple Comparisons with Bonferroni Corrections Across Diet and Radiation (pools all SDs)
+```{r}
+PairwiseAll <- FemalesWeightsClean %>%
+  group_by(Date) %>%
+  pairwise_t_test(
+    Weight ~ Group, paired = FALSE,
+    p.adjust.method = "bonferroni"
+  )
+PairwiseAll
+```
+
+Multiple Comparisons with Bonferroni Corrections Across Diet and Radiation (Does not pool SDs)
+```{r}
+PairwiseAll <- FemalesWeightsClean %>%
+  group_by(Date) %>%
+  t_test(
+    Weight ~ Group, paired = FALSE,
+    p.adjust.method = "bonferroni"
+  )
+PairwiseAll
+```
+
+# Effect Sizes
+
+Main Effect Size (Eta Squared)
+```{r}
+FemaleWeightsES <- FemalesWeightsClean %>%
+  group_by(Date) %>%
+  convert_as_factor(Date)
+eta_squared(aov(Weight ~ Radiation * Diet, data = FemalesWeightsClean))
+```
+
+Multiple Comparisons Effect Size (Cohen's d)
+```{r}
+cohens_d(Weight ~ Group, data = FemaleWeightsES)
+```
+
+# Figure
+
+Smoothened Line Graph (Mean +/- SEM)
+```{r}
+FemalesWeightsGraph <- ggplot(FemalesWeightsClean, aes(x=Date, 
+    y=Weight, group = interaction(Radiation, Diet), 
+    fill=Diet, color=Radiation)) +
+    geom_point(size = 1, alpha = 0) +
+    geom_smooth(span = .4, aes(color=Radiation, fill=Diet)) +
+   scale_fill_manual(values = c( "#CACED4", "#FBF293"))+
+    scale_color_manual(values = c("#db8270", "#3e8dcc"))+
+  ggtitle("Females Weights") + 
+  ylab("Weight (g)") + 
+  xlab("Date") +
+  scale_y_continuous(expand = c(0,0)) +
+  #scale_x_continuous(expand = expansion(mult = c(0,0))) +
+  #makes x axis start at 1 if scaled continuously
+  coord_cartesian(expand = FALSE, ylim = c(20,40)) + 
+  #does not remove points outside of y-limit, merges y-axis with line graph
+  scale_x_date(date_labels = "%b %d", date_breaks = "1 month") +
+  #scales x axis by date, every month
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 60, vjust = 1, hjust = 1),
+      plot.title = element_text(hjust = 0.5, face="bold", size = 18), 
+      panel.background = element_blank(), 
+      axis.line = element_line(colour = "black", size = 1), 
+      axis.text=element_text(colour = "black", family="Arial", size=12,
+                             face="bold"), 
+      axis.title.x=element_text(face = "bold", size=14),
+      axis.title.y=element_text(face = "bold", size=14),
+      legend.title=element_text(face="bold"),
+      legend.text=element_text(face="bold")) 
+print(FemalesWeightsGraph)
+```
+
+To Save as SVG:
+```{r}
+#library(svglite)
+#ggsave("FemalesWeightsGraph.svg", width = 8, height = 4)
+```
