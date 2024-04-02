@@ -1,0 +1,93 @@
+---
+title: "NSRL 19A Females Survival"
+author: "Frederico Kiffer, Ph.D."
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+Here we conduct survival analyses of female mice following a 75cGy whole-body exposure to NASA's ground-based 33-beam Galactic Cosmic Ray analog or sham-irradiation during the 19A campaign. Mice also received the candidate countermeasure CDDO-EA or just a vehicle formulation.
+
+Load Libraries
+```{r}
+library(colorspace)
+library(survival)
+library(survminer)
+library(ggpubr)
+```
+
+Read CSV
+```{r}
+FemalesSurvival <- read.csv("https://raw.githubusercontent.com/FKiffer/NSRL19AFemales/main/FemalesSurvival.csv")
+FemalesSurvival
+```
+
+Convert Variables as Factors
+```{r}
+cols <- c("Vehicle", "CDDO", "Sham", "GCR")
+FemalesSurvival[cols] <- lapply(FemalesSurvival[cols], factor)
+head(FemalesSurvival)
+```
+
+
+Designate Variables
+```{r}
+km.females_survival <- survfit(Surv(
+  time = FemalesSurvival$Weeks,
+  event = FemalesSurvival$Death) ~ Vehicle+CDDO+Sham+GCR,
+  data = FemalesSurvival, type = "kaplan-meier"
+  )
+summary(km.females_survival)
+```
+
+Log-Rank Test
+```{r}
+survdiff(Surv(
+  time = FemalesSurvival$Weeks,
+  event = FemalesSurvival$Death) ~ Vehicle+CDDO+Sham+GCR,
+  data = FemalesSurvival)
+```
+
+Graph with 95% Confidence Interval
+```{r}
+FemalesSurvivalGraph <- ggsurvplot(km.females_survival, conf.int = TRUE, 
+    pval = FALSE, 
+    palette = c("#ef5e4f", "#4F90EF", "#ef5e4f", "#4F90EF"),
+    risk.table = FALSE,
+    legend.labs = c("CDDO/GCR", "CDDO/Sham", "Veh/GCR", "Veh/Sham"), 
+    legend.title = "Diet/Radiation", legend = c("right"), break.time.by = 5, 
+    axes.offset = FALSE, ylim = c(0, 1), linetype=c("strata"),
+    xlim = c(0, 60), ggtheme = theme_classic() + #ad breaks
+    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 18), 
+          axis.line = element_line(colour = "black", size = 1),
+          axis.text=element_text(colour = "black", family = "Arial", 
+            size = 12, face="bold"), 
+          legend.title = element_text(face = "bold", size = 10),
+          legend.text = element_text(face = "bold", size = 8)),
+    font.x = c(14, "bold"), font.y = c(14, "bold"),
+    font.legend.title = c(10, "bold")) +
+    ggtitle("Mouse Attrition") +
+    ylab("Mouse Survival Probability") +
+    xlab("Weeks From Irradiation") 
+FemalesSurvivalGraph
+```
+
+Save as SVG (optional)
+```{r}
+#library(svglite)
+#ggsave("19AFemalesSurvival.svg", width = 8, height = 4)
+```
+
+Cox Proportional Hazards
+```{r}
+CoxPH <- coxph( Surv(
+  time = FemalesSurvival$Weeks,
+  event = FemalesSurvival$Death) ~ Vehicle+CDDO+Sham+GCR, #(No animals receiving veh died)
+  data = FemalesSurvival)
+CoxPH
+summary(CoxPH)
+```
+
+Cox Proportionate Hazards does not work when there are groups without deaths, and cannot appropriately counterbalance for groups that do have deaths in a 2x2 experimental design. 
+
